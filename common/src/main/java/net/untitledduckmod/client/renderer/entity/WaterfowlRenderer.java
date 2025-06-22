@@ -49,12 +49,15 @@ public class WaterfowlRenderer<T extends WaterfowlEntity, R extends LivingEntity
 
     @Override
     public void scaleModelForRender(R renderState, float widthScale, float heightScale, MatrixStack poseStack, BakedGeoModel model, boolean isReRender) {
-        // set the entity scale for rendering (this replaces the need to change the scale in preRender)
-        float modelScale = renderState.ageScale;
+        float babyScale = 0.7f;
 
-        this.withScale(modelScale);
+        if (renderState.hasGeckolibData(WaterfowlEntity.BABY_SCALE_TICKET))
+            //noinspection DataFlowIssue
+            babyScale = renderState.getGeckolibData(WaterfowlEntity.BABY_SCALE_TICKET);
 
-        super.scaleModelForRender(renderState, widthScale, heightScale, poseStack, model, isReRender);
+        float modelScale = renderState.baby ? babyScale : 0.8f + babyScale * 0.5f;
+
+        super.scaleModelForRender(renderState, modelScale, modelScale, poseStack, model, isReRender);
     }
 
     @Override
