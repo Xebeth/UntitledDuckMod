@@ -72,6 +72,7 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoEntit
     private static final int MIN_EGG_LAY_TIME = 6000;
     private static final int MAX_EGG_LAY_TIME = 12000;
 
+    protected int maxVariant = 3;
     protected int eggLayTime;
     protected boolean isFlapping;
     protected boolean panicked = false;
@@ -144,7 +145,7 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoEntit
     }
 
     public byte getRandomVariant() {
-        return (byte) this.getWorld().getRandom().nextInt(2);
+        return (byte) this.getWorld().getRandom().nextInt(maxVariant);
     }
 
     public int getRandomLayTime() {

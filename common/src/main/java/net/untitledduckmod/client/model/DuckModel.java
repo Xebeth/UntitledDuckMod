@@ -18,7 +18,12 @@ public class DuckModel extends WaterfowlModel<DuckEntity> {
         } else {
             var variant = renderState.hasGeckolibData(WaterfowlEntity.VARIANT_TICKET) ? renderState.getGeckolibData(WaterfowlEntity.VARIANT_TICKET) : 0;
             //noinspection DataFlowIssue
-            return variant == 0 ? ModelIdentifiers.NORMAL_TEXTURE : ModelIdentifiers.FEMALE_TEXTURE;
+            return switch (variant) {
+                case 1 -> ModelIdentifiers.FEMALE_TEXTURE;
+                case 2 -> ModelIdentifiers.PEKIN_TEXTURE;
+                case 3 -> ModelIdentifiers.CAMPBELL_TEXTURE;
+                default -> ModelIdentifiers.NORMAL_TEXTURE;
+            };
         }
     }
 }
