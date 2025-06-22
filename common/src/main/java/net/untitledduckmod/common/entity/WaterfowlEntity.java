@@ -74,8 +74,8 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoEntit
     protected static final RawAnimation EAT_ANIM = RawAnimation.begin().thenPlay("eat");
     protected static final RawAnimation SIT_ANIM = RawAnimation.begin().thenPlay("sit");
 
-    private static final int MIN_EGG_LAY_TIME = 6000;
-    private static final int MAX_EGG_LAY_TIME = 12000;
+    private static final int MIN_EGG_LAY_TIME = 12000;
+    private static final int MAX_EGG_LAY_TIME = 24000;
 
     protected int maxVariant = 3;
     protected int eggLayTime;
