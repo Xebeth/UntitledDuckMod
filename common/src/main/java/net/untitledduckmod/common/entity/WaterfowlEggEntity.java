@@ -79,6 +79,7 @@ public class WaterfowlEggEntity extends ThrownItemEntity {
                         waterfowl.setUuid(UUID.randomUUID());
                         waterfowl.refreshPositionAndAngles(this.getX(), this.getY(), this.getZ(), this.getYaw(), 0.0F);
                         waterfowl.setVariant(waterfowl.getRandomVariant()); // Randomly choose between the two variants
+                        waterfowl.setBabyScale(waterfowl.getRandomBabyScale());
                         world.spawnEntity(waterfowl);
                     }
                 }

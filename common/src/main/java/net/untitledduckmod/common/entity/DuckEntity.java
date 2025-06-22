@@ -311,6 +311,9 @@ public class DuckEntity extends WaterfowlEntity implements Vibrations, Animation
             } else {
                 duckEntity.setVariant(duck.getVariant());
             }
+
+            duckEntity.setBabyScale(getRandomBabyScale());
+
             if (this.isTamed()) {
                 duckEntity.setOwner(this.getOwnerReference());
                 duckEntity.setTamed(true, true);
