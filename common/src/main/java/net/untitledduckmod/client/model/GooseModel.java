@@ -7,7 +7,7 @@ import net.untitledduckmod.common.entity.GooseEntity;
 import net.untitledduckmod.common.entity.WaterfowlEntity;
 import software.bernie.geckolib.renderer.base.GeoRenderState;
 
-import java.util.Objects;
+import java.util.Locale;
 
 public class GooseModel extends WaterfowlModel<GooseEntity> {
 
@@ -18,21 +18,23 @@ public class GooseModel extends WaterfowlModel<GooseEntity> {
     @Override
     public Identifier getTextureResource(GeoRenderState renderState) {
         if (renderState instanceof LivingEntityRenderState livingEntityRenderState) {
-
             if (livingEntityRenderState.baby) {
                 return ModelIdentifiers.GOSLING_TEXTURE;
-            } else if (livingEntityRenderState.customName != null) {
-                String name = Objects.requireNonNull(livingEntityRenderState.customName).getString().toLowerCase();
-                switch (name) {
-                    case "ping" -> {
-                        return ModelIdentifiers.PING_GOOSE_TEXTURE;
-                    }
-                    case "sus" -> {
-                        return ModelIdentifiers.SUS_GOOSE_TEXTURE;
-                    }
-                    case "untitled" -> {
-                        return ModelIdentifiers.UNTITLED_GOOSE_TEXTURE;
-                    }
+            }
+        }
+
+        if (renderState.hasGeckolibData(WaterfowlEntity.CUSTOM_NAME_TICKET)) {
+            String name = renderState.getGeckolibData(WaterfowlEntity.CUSTOM_NAME_TICKET).toLowerCase(Locale.ROOT);
+
+            switch (name) {
+                case "ping" -> {
+                    return ModelIdentifiers.PING_GOOSE_TEXTURE;
+                }
+                case "sus" -> {
+                    return ModelIdentifiers.SUS_GOOSE_TEXTURE;
+                }
+                case "untitled" -> {
+                    return ModelIdentifiers.UNTITLED_GOOSE_TEXTURE;
                 }
             }
         }

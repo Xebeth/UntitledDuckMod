@@ -2,6 +2,8 @@ package net.untitledduckmod.client.model;
 
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.RenderLayers;
 import net.untitledduckmod.common.entity.WaterfowlEntity;
 import software.bernie.geckolib.animatable.processing.AnimationState;
 import software.bernie.geckolib.cache.object.GeoBone;
@@ -11,6 +13,11 @@ import software.bernie.geckolib.renderer.base.GeoRenderState;
 
 public abstract class WaterfowlModel<T extends WaterfowlEntity>  extends DefaultedEntityGeoModel<T> {
     public WaterfowlModel(Identifier assetSubpath) { super(assetSubpath); }
+
+    @Override
+    public RenderLayer getRenderType(GeoRenderState renderState, Identifier texture) {
+        return RenderLayers.entityCutoutNoCull(texture, false);
+    }
 
     @Override
     public void addAdditionalStateData(WaterfowlEntity animatable, GeoRenderState renderState) {
