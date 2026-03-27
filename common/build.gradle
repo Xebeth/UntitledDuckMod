@@ -4,8 +4,15 @@ architectury {
 
 dependencies {
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
-    modImplementation "software.bernie.geckolib:geckolib-fabric-${minecraft_version}:${geckolib_version}"
+    modImplementation "software.bernie.geckolib:geckolib-fabric-1.21.10:${geckolib_version}"
 
     modApi "curse.maven:jade-324717:${jade_id_fabric}"
 }
 
+def missingMixinMappingsPath = layout.buildDirectory.file("tmp/architectury/missing-mixin-mappings.tiny").get().asFile.absolutePath
+
+["transformProductionFabric", "transformProductionNeoForge"].each { taskName ->
+    tasks.named(taskName).configure { task ->
+        task.properties.put("architectury.mixin.mappings", missingMixinMappingsPath)
+    }
+}

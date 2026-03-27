@@ -1,5 +1,5 @@
 plugins {
-    id("com.gradleup.shadow") version "8.3.6"
+    id("com.gradleup.shadow") version "8.3.9"
 }
 
 architectury {
@@ -34,7 +34,7 @@ dependencies {
 
     modApi "curse.maven:jade-324717:${jade_id_neoforge}"
 
-    modImplementation "software.bernie.geckolib:geckolib-neoforge-${minecraft_version}:${geckolib_version}"
+    modImplementation "software.bernie.geckolib:geckolib-neoforge-1.21.10:${geckolib_version}"
 
     forgeRuntimeLibrary("com.eliotlash.mclib:mclib:20")
 
