@@ -44,9 +44,9 @@ public class WaterfowlEggEntity extends ThrownItemEntity {
 
     @Environment(EnvType.CLIENT)
     public void handleStatus(byte status) {
-        if (status == 3) {
+        if (status == EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES) {
             for (int i = 0; i < 8; ++i) {
-                this.getWorld().addParticleClient(new ItemStackParticleEffect(ParticleTypes.ITEM, this.getStack()), this.getX(), this.getY(), this.getZ(), ((double) this.random.nextFloat() - 0.5D) * 0.08D, ((double) this.random.nextFloat() - 0.5D) * 0.08D, ((double) this.random.nextFloat() - 0.5D) * 0.08D);
+                this.getEntityWorld().addParticleClient(new ItemStackParticleEffect(ParticleTypes.ITEM, this.getStack()), this.getX(), this.getY(), this.getZ(), ((double) this.random.nextFloat() - 0.5D) * 0.08D, ((double) this.random.nextFloat() - 0.5D) * 0.08D, ((double) this.random.nextFloat() - 0.5D) * 0.08D);
             }
         }
     }
@@ -54,16 +54,16 @@ public class WaterfowlEggEntity extends ThrownItemEntity {
     @Override
     protected void onEntityHit(EntityHitResult entityHitResult) {
         super.onEntityHit(entityHitResult);
-        if (this.getWorld() instanceof ServerWorld serverWorld) {
-            entityHitResult.getEntity().damage(serverWorld, this.getDamageSources().thrown(this, this.getOwner()), 0.0F);
+        if (this.getEntityWorld() instanceof ServerWorld serverWorld) {
+            entityHitResult.getEntity().damage(serverWorld, this.getEntityWorld().getDamageSources().thrown(this, this.getOwner()), 0.0F);
         }
     }
 
     @Override
     protected void onCollision(HitResult hitResult) {
         super.onCollision(hitResult);
-        World world = this.getWorld();
-        if (!world.isClient) {
+        World world = this.getEntityWorld();
+        if (!world.isClient()) {
             if (this.random.nextInt(8) == 0) {
                 int i = 1;
                 if (this.random.nextInt(32) == 0) {
@@ -71,20 +71,20 @@ public class WaterfowlEggEntity extends ThrownItemEntity {
                 }
 
                 for (int j = 0; j < i; ++j) {
-                    WaterfowlEntity waterfowl = mobEntityType.create(this.getWorld(), SpawnReason.TRIGGERED);
+                    WaterfowlEntity waterfowl = mobEntityType.create(this.getEntityWorld(), SpawnReason.TRIGGERED);
                     if (waterfowl != null) {
                         waterfowl.setBreedingAge(-24000);
                         waterfowl.refreshPositionAndAngles(this.getX(), this.getY(), this.getZ(), this.getYaw(), 0.0F);
-                        waterfowl.setVariant((byte) this.getWorld().getRandom().nextInt(2)); // Randomly choose between the two variants
-                        if (!waterfowl.recalculateDimensions(EMPTY_DIMENSIONS)) {
+                        waterfowl.setVariant((byte) this.getEntityWorld().getRandom().nextInt(2)); // Randomly choose between the two variants
+                        if (!waterfowl.recalculateDimensions(EntityDimensions.changing(0.0f, 0.0f))) {
                             break;
                         }
-                        world.spawnEntity(waterfowl);
+                        this.getEntityWorld().spawnEntity(waterfowl);
                     }
                 }
             }
 
-            world.sendEntityStatus(this, EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES);
+            this.getEntityWorld().sendEntityStatus(this, EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES);
             this.discard();
         }
     }

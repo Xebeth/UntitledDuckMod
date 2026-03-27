@@ -4,7 +4,6 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
-import net.minecraft.client.render.entity.state.LivingEntityRenderState;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.TargetPredicate;
 import net.minecraft.entity.ai.goal.*;
@@ -20,7 +19,6 @@ import net.minecraft.entity.passive.PassiveEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.particle.ItemStackParticleEffect;
 import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.recipe.Ingredient;
@@ -61,9 +59,9 @@ import java.util.*;
 import java.util.function.Predicate;
 
 public class GooseEntity extends WaterfowlEntity implements Angerable, AnimationController.KeyframeEventHandler<GooseEntity, ParticleKeyframeData> {
-    private static final TrackedData<Integer> ANGER_TIME = DataTracker.registerData(GooseEntity.class, TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Long> ANGER_TIME = DataTracker.registerData(GooseEntity.class, TrackedDataHandlerRegistry.LONG);
     private static final UniformIntProvider ANGER_TIME_RANGE = UniformIntProvider.create(20, 39);
-    private UUID targetUuid;
+    private LazyEntityReference<LivingEntity> angryAt;
 
     public static final byte ANIMATION_BITE = 2;
     public static final int ANIMATION_BITE_LEN = 22;
@@ -91,6 +89,10 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
                 || downState.isOf(Blocks.ICE)
                 || downState.isOf(Blocks.FROSTED_ICE);
 
+        return hasEnoughSpace(world, pos, downState, isValidSurface);
+    }
+
+    static boolean hasEnoughSpace(WorldAccess world, BlockPos pos, BlockState downState, boolean isValidSurface) {
         boolean hasEnoughSpace;
         if (downState.isOf(Blocks.ICE) || downState.isOf(Blocks.FROSTED_ICE)) {
             hasEnoughSpace = world.getBlockState(pos).isAir()
@@ -118,19 +120,19 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
     @Override
     protected void initDataTracker(DataTracker.Builder builder) {
         super.initDataTracker(builder);
-        builder.add(ANGER_TIME, 0);
+        builder.add(ANGER_TIME, 0L);
     }
 
     @Override
-    public void writeCustomData(WriteView view) {
-        super.writeCustomData(view);
-        this.writeAngerToData(view);
+    public void writeCustomData(WriteView nbt) {
+        super.writeCustomData(nbt);
+        this.writeAngerToData(nbt);
     }
 
     @Override
-    public void readCustomData(ReadView view) {
-        super.readCustomData(view);
-        this.readAngerFromData(this.getWorld(), view);
+    public void readCustomData(ReadView nbt) {
+        super.readCustomData(nbt);
+        this.readAngerFromData(this.getEntityWorld(), nbt);
     }
 
     @Override
@@ -153,7 +155,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
                 double d = this.random.nextGaussian() * 0.02D;
                 double e = this.random.nextGaussian() * 0.02D;
                 double f = this.random.nextGaussian() * 0.02D;
-                this.getWorld().addParticleClient(particleEffect, this.getParticleX(1.0D), this.getRandomBodyY() + 0.5D, this.getParticleZ(1.0D), d, e, f);
+            this.getEntityWorld().addParticleClient(particleEffect, this.getParticleX(1.0D), this.getRandomBodyY() + 0.5D, this.getParticleZ(1.0D), d, e, f);
             }
         }
         super.handleStatus(status);
@@ -218,7 +220,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
 
     @Override
     public void onEquipStack(EquipmentSlot slot, ItemStack oldStack, ItemStack newStack) {
-        if (this.getWorld().isClient) {
+        if (this.getEntityWorld().isClient()) {
             return;
         }
         Entity holder = newStack.getHolder();
@@ -234,7 +236,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
     public void tickMovement() {
         super.tickMovement();
 
-        if (!this.getWorld().isClient) {
+        if (!this.getEntityWorld().isClient()) {
             // Tick animation timer
             if (animationTimer > 0) {
                 animationTimer--;
@@ -257,7 +259,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
     }
 
     protected boolean tryTaming(PlayerEntity player, ItemStack stack) {
-        if (isAngry() && this.getWorld() instanceof ServerWorld world) {
+        if (isAngry() && this.getEntityWorld() instanceof ServerWorld world) {
             // Peace goose when angry with food
             if (getFoodIngredient().test(stack)) {
                 ItemStack newStack = stack.copy();
@@ -291,8 +293,8 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
         this.setAttacker(null);
         this.setAngryAt(null);
         this.setTarget(null);
-        this.setAngerTime(0);
-        this.getWorld().sendEntityStatus(this, (byte) 100);
+        this.setAngerEndTime(0L);
+        this.getEntityWorld().sendEntityStatus(this, (byte) 100);
     }
 
     @Override
@@ -383,45 +385,32 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
 
     @SuppressWarnings("SameReturnValue")
     private <P extends GeoAnimatable> PlayState predicate(AnimationTest<P> event) {
-        var livingRenderState = (LivingEntityRenderState) event.renderState();
-        float limbSwingAmount = livingRenderState.limbSwingAmplitude;
-        boolean isMoving = !(limbSwingAmount > -0.05F && limbSwingAmount < 0.05F);
-        boolean inWater = isTouchingWater();
-        AnimationController<P> controller = event.controller();
-        if (isFlapping) {
-            controller.setAnimation(FLY_ANIM);
-            return PlayState.CONTINUE;
-        }
-        if (isInSittingPose()) {
-            controller.setAnimation(SIT_ANIM);
-            return PlayState.CONTINUE;
-        }
-
-        byte currentAnimation = getAnimation();
-        switch (currentAnimation) {
-            case ANIMATION_BITE -> {
-                controller.setAnimation(BITE_ANIM);
-                animationTimer = ANIMATION_BITE_LEN;
-            }
-            case ANIMATION_INTIMIDATE -> controller.setAnimation(INTIMIDATE_ANIM);
-            case ANIMATION_EAT -> controller.setAnimation(EAT_ANIM);
-            case ANIMATION_CLEAN -> controller.setAnimation(inWater ? SWIM_ANIM : CLEAN_ANIM);
-            case ANIMATION_DANCE -> controller.setAnimation(HONK_ANIM);
-            case ANIMATION_PANIC -> controller.setAnimation(PANIC_ANIM);
-            default -> {
-                if (inWater) {
-                    controller.setAnimation(isMoving ? SWIM_ANIM : SWIM_IDLE_ANIM);
-                } else {
-                    if (isAttacking()) {
-                        controller.setAnimation(CHARGE_ANIM);
-                        return PlayState.CONTINUE;
+        return handleAnimation(event, animationState -> {
+            AnimationController<P> controller = animationState.controller();
+            switch (animationState.currentAnimation()) {
+                case ANIMATION_BITE -> {
+                    controller.setAnimation(BITE_ANIM);
+                    animationTimer = ANIMATION_BITE_LEN;
+                }
+                case ANIMATION_INTIMIDATE -> controller.setAnimation(INTIMIDATE_ANIM);
+                case ANIMATION_EAT -> controller.setAnimation(EAT_ANIM);
+                case ANIMATION_CLEAN -> controller.setAnimation(animationState.inWater() ? SWIM_ANIM : CLEAN_ANIM);
+                case ANIMATION_DANCE -> controller.setAnimation(HONK_ANIM);
+                case ANIMATION_PANIC -> controller.setAnimation(PANIC_ANIM);
+                default -> {
+                    if (animationState.inWater()) {
+                        controller.setAnimation(animationState.moving() ? SWIM_ANIM : SWIM_IDLE_ANIM);
+                    } else {
+                        if (isAttacking()) {
+                            controller.setAnimation(CHARGE_ANIM);
+                            return PlayState.CONTINUE;
+                        }
+                        controller.setAnimation(animationState.moving() ? WALK_ANIM : IDLE_ANIM);
                     }
-                    controller.setAnimation(isMoving ? WALK_ANIM : IDLE_ANIM);
                 }
             }
-        }
-
-        return PlayState.CONTINUE;
+            return PlayState.CONTINUE;
+        });
     }
 
     @Override
@@ -475,47 +464,34 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
     }
 
     @Override
-    public int getAngerTime() {
+    public long getAngerEndTime() {
         return dataTracker.get(ANGER_TIME);
     }
 
     @Override
-    public void setAngerTime(int ticks) {
+    public void setAngerEndTime(long ticks) {
         dataTracker.set(ANGER_TIME, ticks);
     }
 
     @Nullable
     @Override
-    public UUID getAngryAt() {
-        return targetUuid;
+    public LazyEntityReference<LivingEntity> getAngryAt() {
+        return angryAt;
     }
 
     @Override
-    public void setAngryAt(@Nullable UUID uuid) {
-        targetUuid = uuid;
+    public void setAngryAt(@Nullable LazyEntityReference<LivingEntity> lazyRef) {
+        angryAt = lazyRef;
     }
 
     @Override
     public void chooseRandomAngerTime() {
-        this.setAngerTime(ANGER_TIME_RANGE.get(this.random));
+        this.setAngerEndTime(this.getEntityWorld().getTime() + (long)ANGER_TIME_RANGE.get(this.random));
     }
 
     @Override
     public void handle(KeyFrameEvent<GooseEntity, ParticleKeyframeData> event) {
-        ItemStack stack = getMainHandStack();
-        if (stack == ItemStack.EMPTY) {
-            return;
-        }
-        for (int i = 0; i < 8; ++i) {
-            Vec3d vel = new Vec3d(((double) this.random.nextFloat() - 0.5D) * 0.1D, Math.random() * 0.1D + 0.1D, 0.0D);
-            vel = vel.rotateX(-this.getPitch() * 0.017453292F);
-            vel = vel.rotateY(-this.getYaw() * 0.017453292F);
-
-            Vec3d rotationVec = Vec3d.fromPolar(0, bodyYaw);
-            Vec3d pos = new Vec3d(this.getX() + rotationVec.x / 2.0D, getEyeY() - 0.2D, this.getZ() + rotationVec.z / 2.0D);
-            this.getWorld().addParticleClient(new ItemStackParticleEffect(ParticleTypes.ITEM, stack), pos.x, pos.y, pos.z,
-                    vel.x, vel.y + 0.05D, vel.z);
-        }
+        spawnHeldItemParticles();
     }
 
     public boolean wantsToPickupItem() {
@@ -639,7 +615,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
             animationTime = ANIMATION_LENGTH;
             delayTime = STARTING_DELAY;
 
-            originalLocation = goose.getPos();
+            originalLocation = goose.getEntityPos();
             goose.getNavigation().startMovingTo(targetEntity, 1.2);
         }
 
@@ -735,7 +711,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
                 } else if (goose.getRandom().nextInt(10) != 0) {
                     return false;
                 } else {
-                    List<ItemEntity> list = goose.getWorld().getEntitiesByClass(ItemEntity.class, goose.getBoundingBox().expand(8.0D, 8.0D, 8.0D), PICKABLE_DROP_FILTER);
+            List<ItemEntity> list = goose.getEntityWorld().getEntitiesByClass(ItemEntity.class, goose.getBoundingBox().expand(8.0D, 8.0D, 8.0D), PICKABLE_DROP_FILTER);
                     return !list.isEmpty() && goose.getEquippedStack(EquipmentSlot.MAINHAND).isEmpty();
                 }
             }
@@ -749,7 +725,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
         }
 
         public void start() {
-            List<ItemEntity> list = goose.getWorld().getEntitiesByClass(ItemEntity.class, goose.getBoundingBox().expand(8.0D, 8.0D, 8.0D), PICKABLE_DROP_FILTER);
+            List<ItemEntity> list = goose.getEntityWorld().getEntitiesByClass(ItemEntity.class, goose.getBoundingBox().expand(8.0D, 8.0D, 8.0D), PICKABLE_DROP_FILTER);
             if (!list.isEmpty()) {
                 goose.getNavigation().startMovingTo(list.getFirst(), SPEED);
             }
@@ -797,7 +773,7 @@ public class GooseEntity extends WaterfowlEntity implements Angerable, Animation
             if (goose.getRandom().nextInt(10) != 0) {
                 return false;
             }
-            targetPlayer = goose.getWorld().getClosestPlayer(goose.getX(), goose.getY(), goose.getZ(), 10.0D, true);
+            targetPlayer = goose.getEntityWorld().getClosestPlayer(goose.getX(), goose.getY(), goose.getZ(), 10.0D, true);
             if (targetPlayer == null) {
                 nextStealTime = goose.age + goose.getRandom().nextInt(10 * 20) + 10 * 20;
                 return false;

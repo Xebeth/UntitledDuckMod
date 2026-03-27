@@ -1,13 +1,11 @@
 package net.untitledduckmod.common.entity;
 
 import com.mojang.logging.LogUtils;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.FoodComponent;
+import net.minecraft.client.render.entity.state.LivingEntityRenderState;
 import net.minecraft.entity.EntityData;
 import net.minecraft.entity.EntityStatuses;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.SpawnReason;
-import net.minecraft.entity.ai.pathing.PathNodeType;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.data.DataTracker;
@@ -18,14 +16,14 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.fluid.Fluid;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ItemStackParticleEffect;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.tag.TagKey;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.ActionResult;
-import net.minecraft.util.ErrorReporter;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LocalDifficulty;
@@ -36,6 +34,9 @@ import net.untitledduckmod.common.config.UntitledConfig;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import software.bernie.geckolib.animatable.GeoAnimatable;
+import software.bernie.geckolib.animatable.processing.AnimationController;
+import software.bernie.geckolib.animatable.processing.AnimationTest;
+import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.constant.dataticket.DataTicket;
 import software.bernie.geckolib.renderer.base.GeoRenderState;
@@ -43,7 +44,6 @@ import software.bernie.geckolib.renderer.base.GeoRenderState;
 import java.util.Objects;
 
 public abstract class WaterfowlEntity extends TameableEntity implements GeoAnimatable {
-    protected ErrorReporter errorReporter;
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public static final float BABY_MIN_SCALE = 0.25f;
@@ -55,6 +55,7 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     public static final DataTicket<Boolean> LOOKING_AROUND_TICKET = DataTicket.create("look_around", Boolean.class);
     public static final DataTicket<Byte> VARIANT_TICKET = DataTicket.create("waterfowl_variant", Byte.class);
     public static final DataTicket<Float> BABY_SCALE_TICKET = DataTicket.create("waterfowl_baby_scale", Float.class);
+    public static final DataTicket<String> CUSTOM_NAME_TICKET = DataTicket.create("waterfowl_custom_name", String.class);
     protected static final TrackedData<Byte> VARIANT = DataTracker.registerData(WaterfowlEntity.class, TrackedDataHandlerRegistry.BYTE);
     protected static final TrackedData<Float> BABY_SCALE = DataTracker.registerData(WaterfowlEntity.class, TrackedDataHandlerRegistry.FLOAT);
     protected static final TrackedData<Byte> ANIMATION = DataTracker.registerData(WaterfowlEntity.class, TrackedDataHandlerRegistry.BYTE);
@@ -74,6 +75,14 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     protected static final RawAnimation EAT_ANIM = RawAnimation.begin().thenPlay("eat");
     protected static final RawAnimation SIT_ANIM = RawAnimation.begin().thenPlay("sit");
 
+    @FunctionalInterface
+    protected interface AnimationStateHandler<P extends GeoAnimatable> {
+        PlayState handle(AnimationState<P> state);
+    }
+
+    protected record AnimationState<P extends GeoAnimatable>(AnimationController<P> controller, boolean moving, boolean inWater, byte currentAnimation) {
+    }
+
     private static final int MIN_EGG_LAY_TIME = 12000;
     private static final int MAX_EGG_LAY_TIME = 24000;
 
@@ -84,9 +93,6 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     protected WaterfowlEntity(EntityType<? extends TameableEntity> entityType, World world) {
         super(entityType, world);
         eggLayTime = getRandomLayTime();
-        this.setPathfindingPenalty(PathNodeType.WATER, 0.0f);
-
-        errorReporter = new ErrorReporter.Logging(() -> entityType.getName().toString(), LOGGER);
     }
 
     @Override
@@ -113,19 +119,22 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     }
 
     @Override
-    public void writeCustomData(WriteView view) {
-        super.writeCustomData(view);
-        view.putByte(VARIANT_TAG, getVariant());
-        view.putInt(EGG_LAY_TIME_TAG, eggLayTime);
-        view.putFloat(BABY_SCALE_TAG, getBabyScale());
+    public void writeCustomData(WriteView nbt) {
+        super.writeCustomData(nbt);
+        nbt.putByte(VARIANT_TAG, getVariant());
+        nbt.putInt(EGG_LAY_TIME_TAG, eggLayTime);
+        nbt.putFloat(BABY_SCALE_TAG, getBabyScale());
     }
 
     @Override
-    public void readCustomData(ReadView view) {
-        super.readCustomData(view);
-        setVariant(view.getByte(VARIANT_TAG, getRandomVariant()));
-        setBabyScale(view.getFloat(BABY_SCALE_TAG, getRandomBabyScale()));
-        this.eggLayTime = view.getInt(EGG_LAY_TIME_TAG, getRandomLayTime());
+    public void readCustomData(ReadView nbt) {
+        super.readCustomData(nbt);
+        setVariant(nbt.getByte(VARIANT_TAG, (byte) 0));
+        setBabyScale(nbt.getFloat(BABY_SCALE_TAG, 1.0f));
+        this.eggLayTime = nbt.getInt(EGG_LAY_TIME_TAG, 0);
+        if (this.eggLayTime == 0) {
+            this.eggLayTime = getRandomLayTime();
+        }
     }
 
     @Override
@@ -185,22 +194,62 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     }
 
     public void tryEating() {
-        assert !this.getWorld().isClient();
-
-        ItemStack stack = getMainHandStack();
-        stack.decrement(1);
-        playSound(SoundEvents.ENTITY_GENERIC_EAT.value(), 0.5F + 0.5F * (float) this.random.nextInt(2), (this.random.nextFloat() - this.random.nextFloat()) * 0.2F + 1.0F);
-        if (stack.isEmpty()) {
-            setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
-        }
-        if (isHungry()) {
-            FoodComponent food = stack.get(DataComponentTypes.FOOD);
-            heal(food != null ? food.nutrition() : UntitledConfig.foodHealingValue());
+        if (!this.getEntityWorld().isClient() && this.isHungry()) {
+            this.getEntityWorld().sendEntityStatus(this, EntityStatuses.ADD_BREEDING_PARTICLES);
+            setHealth(getHealth() + UntitledConfig.foodHealingValue());
+            this.setAnimation(ANIMATION_EAT);
         }
     }
 
     public boolean lookingAround() {
-        return getAnimation() != ANIMATION_CLEAN || getAnimation() != ANIMATION_EAT;
+        return (getAnimation() == ANIMATION_IDLE || getAnimation() == ANIMATION_CLEAN) && !this.panicked;
+    }
+
+    @Nullable
+    protected <P extends GeoAnimatable> AnimationState<P> getAnimationState(AnimationTest<P> event) {
+        var livingRenderState = (LivingEntityRenderState) event.renderState();
+        boolean isMoving = Math.abs(livingRenderState.limbSwingAmplitude) >= 0.05F;
+        boolean inWater = isTouchingWater();
+        AnimationController<P> controller = event.controller();
+
+        if (isFlapping) {
+            controller.setAnimation(FLY_ANIM);
+            return null;
+        }
+
+        if (isInSittingPose()) {
+            controller.setAnimation(SIT_ANIM);
+            return null;
+        }
+
+        return new AnimationState<>(controller, isMoving, inWater, getAnimation());
+    }
+
+    protected <P extends GeoAnimatable> PlayState handleAnimation(AnimationTest<P> event, AnimationStateHandler<P> handler) {
+        AnimationState<P> animationState = getAnimationState(event);
+        if (animationState == null) {
+            return PlayState.CONTINUE;
+        }
+
+        return handler.handle(animationState);
+    }
+
+    protected void spawnHeldItemParticles() {
+        ItemStack stack = getMainHandStack();
+        if (stack.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < 8; ++i) {
+            Vec3d velocity = new Vec3d((this.random.nextFloat() - 0.5D) * 0.1D, this.random.nextDouble() * 0.1D + 0.1D, 0.0D);
+            velocity = velocity.rotateX(-this.getPitch() * 0.017453292F);
+            velocity = velocity.rotateY(-this.getYaw() * 0.017453292F);
+
+            Vec3d rotationVec = Vec3d.fromPolar(0, bodyYaw);
+            Vec3d pos = new Vec3d(this.getX() + rotationVec.x / 2.0D, getEyeY() - 0.2D, this.getZ() + rotationVec.z / 2.0D);
+            this.getEntityWorld().addParticleClient(new ItemStackParticleEffect(ParticleTypes.ITEM, stack), pos.x, pos.y, pos.z,
+                    velocity.x, velocity.y + 0.05D, velocity.z);
+        }
     }
 
     protected abstract SoundEvent getLayEggSound();
@@ -211,11 +260,11 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     public void tickMovement() {
         super.tickMovement();
 
-        if (this.getWorld() instanceof ServerWorld world) {
+        if (this.getEntityWorld() instanceof ServerWorld serverWorld) {
             // Lay egg
             if (isAlive() && !isBaby() && --eggLayTime <= 0) {
                 this.playSound(this.getLayEggSound(), 1.0F, (this.random.nextFloat() - this.random.nextFloat()) * 0.2F + 1.0F);
-                this.dropItem(world, this.getEggItem());
+                this.dropItem(serverWorld, this.getEggItem());
                 this.eggLayTime = getRandomLayTime();
             }
 
@@ -230,7 +279,7 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
         }
 
         // Play flapping/fly animation when falling
-        isFlapping = this.getWorld().isClient && !isTouchingWater() && !this.isOnGround();
+        isFlapping = this.getEntityWorld().isClient() && !isTouchingWater() && !this.isOnGround();
     }
 
     protected abstract void handlePanicAnimation();
@@ -239,7 +288,7 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
     public ActionResult interactMob(PlayerEntity player, Hand hand) {
         // TODO: Cleanup
         ItemStack stack = player.getStackInHand(hand);
-        if (this.getWorld().isClient && (!this.isBaby() || !this.isBreedingItem(stack))) {
+        if (this.getEntityWorld().isClient() && (!this.isBaby() || !this.isBreedingItem(stack))) {
             if (this.isTamed() && this.isOwner(player)) {
                 return ActionResult.SUCCESS;
             } else {
@@ -248,9 +297,8 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
         } else {
             if (isTamed() && this.isOwner(player)) {
                 if (this.isBreedingItem(stack) && this.getHealth() < this.getMaxHealth()) {
-                    FoodComponent food = stack.get(DataComponentTypes.FOOD);
                     this.eat(player, hand, stack);
-                    heal(food != null ? food.nutrition() : UntitledConfig.foodHealingValue());
+                    heal(UntitledConfig.foodHealingValue());
                     return ActionResult.CONSUME;
                 }
                 ActionResult actionResult = super.interactMob(player, hand);
@@ -270,9 +318,9 @@ public abstract class WaterfowlEntity extends TameableEntity implements GeoAnima
                     this.navigation.stop();
                     this.setTarget(null);
                     this.setSitting(true);
-                    this.getWorld().sendEntityStatus(this, EntityStatuses.ADD_POSITIVE_PLAYER_REACTION_PARTICLES);
+                    this.getEntityWorld().sendEntityStatus(this, EntityStatuses.ADD_POSITIVE_PLAYER_REACTION_PARTICLES);
                 } else {
-                    this.getWorld().sendEntityStatus(this, EntityStatuses.ADD_NEGATIVE_PLAYER_REACTION_PARTICLES);
+                    this.getEntityWorld().sendEntityStatus(this, EntityStatuses.ADD_NEGATIVE_PLAYER_REACTION_PARTICLES);
                 }
                 return ActionResult.CONSUME;
             } else {
