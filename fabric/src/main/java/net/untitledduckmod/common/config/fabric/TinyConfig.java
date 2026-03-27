@@ -38,9 +38,11 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.Selectable;
+import net.minecraft.client.input.KeyInput;
 import net.minecraft.client.gui.screen.ConfirmLinkScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.tab.GridScreenTab;
@@ -56,7 +58,6 @@ import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableTextContent;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.TranslatableOption;
 import net.untitledduckmod.DuckMod;
 
 import javax.swing.*;
@@ -76,8 +77,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import static net.minecraft.client.MinecraftClient.IS_SYSTEM_MAC;
-
 /** MidnightConfig by Martin "Motschen" Prokoph
  *  Single class config library - feel free to copy!
  *  Based on <a href="https://github.com/Minenash/TinyConfig">...</a>
@@ -86,8 +85,9 @@ import static net.minecraft.client.MinecraftClient.IS_SYSTEM_MAC;
 @SuppressWarnings("unchecked")
 public abstract class TinyConfig {
     private static final Pattern INTEGER_ONLY = Pattern.compile("(-?[0-9]*)");
-    private static final Pattern DECIMAL_ONLY = Pattern.compile("-?([\\d]+\\.?[\\d]*|[\\d]*\\.?[\\d]+|\\.)");
+    private static final Pattern DECIMAL_ONLY = Pattern.compile("-?(\\d+\\.?\\d*|\\d*\\.?\\d+|\\.)");
     private static final Pattern HEXADECIMAL_ONLY = Pattern.compile("(-?[#0-9a-fA-F]*)");
+    private static final boolean IS_SYSTEM_MAC = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
 
     private static final LinkedHashMap<String, EntryInfo> entries = new LinkedHashMap<>();
     private static boolean reloadScreen = false;
@@ -136,7 +136,7 @@ public abstract class TinyConfig {
                 this.field.set(null, this.value);
             } catch (IllegalAccessException ignored) {}
         }
-        @SuppressWarnings("ConstantValue") //pertains to requiredModLoaded
+        //pertains to requiredModLoaded
         public void updateConditions() {
             boolean prevConditionState = this.conditionsMet;
             if (this.conditions.length > 0) this.conditionsMet = true;    // reset conditions
@@ -173,7 +173,9 @@ public abstract class TinyConfig {
             }).setPrettyPrinting().create();
 
     public static void loadValuesFromJson(String modid) {
-        try { gson.fromJson(Files.newBufferedReader(path), configClass.get(modid)); }
+        try (var reader = Files.newBufferedReader(path)) {
+            if (gson.fromJson(reader, configClass.get(modid)) == null) write(modid);
+        }
         catch (Exception e) { write(modid); }
         entries.values().forEach(info -> {
             if (info.field != null && info.entry != null) {
@@ -216,7 +218,7 @@ public abstract class TinyConfig {
                 }, func);
             } else if (info.dataType.isEnum()) {
                 List<?> values = Arrays.asList(field.getType().getEnumConstants());
-                Function<Object, Text> func = value -> getEnumTranslatableText(value, modid, info);
+                Function<Object, Text> func = value -> getEnumTranslatableText(modid, info);
                 info.function = new AbstractMap.SimpleEntry<ButtonWidget.PressAction, Function<Object, Text>>(button -> {
                     int index = values.indexOf(info.value) + 1;
                     info.setValue(values.get(index >= values.size() ? 0 : index));
@@ -234,9 +236,7 @@ public abstract class TinyConfig {
         } catch (NoSuchFieldException | IllegalAccessException ignored) { return rawType; }
     }
 
-    private static Text getEnumTranslatableText(Object value, String modid, EntryInfo info) {
-        if (value instanceof TranslatableOption translatableOption) return translatableOption.getText();
-
+    private static Text getEnumTranslatableText(String modid, EntryInfo info) {
         String translationKey = "%s.config.enum.%s.%s".formatted(modid, info.dataType.getSimpleName(), info.toTemporaryValue());
         return I18n.hasTranslation(translationKey) ? Text.translatable(translationKey) : Text.literal(info.toTemporaryValue());
     }
@@ -352,9 +352,9 @@ public abstract class TinyConfig {
                             button.active = !Objects.equals(String.valueOf(entry.info.value), String.valueOf(entry.info.defaultValue)) && entry.info.conditionsMet;
                     }}}}
         @Override
-        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-            if (this.tabNavigation.trySwitchTabsWithKey(keyCode)) return true;
-            return super.keyPressed(keyCode, scanCode, modifiers);
+        public boolean keyPressed(KeyInput keyInput) {
+            if (this.tabNavigation.keyPressed(keyInput)) return true;
+            return super.keyPressed(keyInput);
         }
         @Override
         public void close() {
@@ -412,7 +412,7 @@ public abstract class TinyConfig {
                         if (info.function instanceof Map.Entry) { // Enums & booleans
                             var values = (Map.Entry<ButtonWidget.PressAction, Function<Object, Text>>) info.function;
                             if (info.dataType.isEnum()) {
-                                values.setValue(value -> getEnumTranslatableText(value, modid, info));
+                                values.setValue(value -> getEnumTranslatableText(modid, info));
                             }
                             widget = ButtonWidget.builder(values.getValue().apply(info.value), values.getKey()).dimensions(width - 185, 0, 150, 20).tooltip(info.getTooltip(true)).build();
                         } else if (e.isSlider())
@@ -527,7 +527,9 @@ public abstract class TinyConfig {
                 title.setMaxWidth(!buttons.isEmpty() ? buttons.get(buttons.size() > 2 ? buttons.size()-1 : 0).getX() - 16 : scaledWidth - 24);
             }
         }
-        public void render(DrawContext context, int index, int y, int x, int entryWidth, int entryHeight, int mouseX, int mouseY, boolean hovered, float tickDelta) {
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, boolean hovered, float tickDelta) {
+            int y = getY();
             buttons.forEach(b -> { b.setY(y); b.render(context, mouseX, mouseY, tickDelta);});
             if (title != null) {
                 title.setY(y+5);
@@ -541,10 +543,11 @@ public abstract class TinyConfig {
         }
 
         @Override
-        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        public boolean mouseClicked(Click click, boolean doubleClick) {
             if (this.info != null && this.info.comment != null && !this.info.comment.url().isBlank())
                 ConfirmLinkScreen.open(MinecraftClient.getInstance().currentScreen, this.info.comment.url(), true);
-            return super.mouseClicked(mouseX, mouseY, button);
+
+            return super.mouseClicked(click, doubleClick);
         }
 
         public List<? extends Element> children() {return Lists.newArrayList(buttons);}
@@ -611,8 +614,6 @@ public abstract class TinyConfig {
         String category() default "default";
         @Deprecated String requiredMod() default "";
     }
-
-    @Retention(RetentionPolicy.RUNTIME) @Target(ElementType.FIELD) public @interface Client {}
 
     /**
      * Hides the entry in config screens, but still makes it accessible through the command {@code /config MOD_ID ENTRY} and directly editing the config file.

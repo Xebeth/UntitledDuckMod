@@ -1,10 +1,13 @@
 package net.untitledduckmod.common.platform.fabric;
 
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.TypedEntityData;
 import net.minecraft.entity.effect.StatusEffect;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.SpawnEggItem;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.potion.Potion;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
@@ -29,7 +32,9 @@ public class RegistryHelperImpl {
             (
             String name, Supplier<? extends EntityType<? extends MobEntity>> type
             ) {
-        return registerItem(name, (settings) -> new SpawnEggItem(type.get(), settings), new Item.Settings());
+        return registerItem(name, (settings) -> new SpawnEggItem(
+                settings.component(DataComponentTypes.ENTITY_DATA, TypedEntityData.create((EntityType<?>)type.get(), new NbtCompound()))
+        ), new Item.Settings());
     }
 
     public static <T extends EntityType<?>> Supplier<T> registerEntity(String name, Supplier<T> entityType) {
